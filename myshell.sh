@@ -1,33 +1,28 @@
 #!/bin/bash
 
-# Global variables for command history, aliases, and theme colors
+# Global variables for command history and aliases
 declare -a command_history
 declare -A aliases
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'  # No Color
 
-# Load configuration file
-load_rc_file() {
-    local rc_file="$HOME/.myshellrc"
-    if [[ -f "$rc_file" ]]; then
-        source "$rc_file"
-        echo -e "${GREEN}Loaded configuration from .myshellrc${NC}"
-    fi
-}
-
-# Function to execute a command with error handling
+# Function to execute a command
 execute_command() {
     local command="$1"
-    command_history+=("$command")
+    command_history+=("$command")  # Append to history
 
     # Check for built-in commands
     case "$command" in
-        "exit") exit 0 ;;
-        "history") show_history ;;
-        "env") show_environment_variables ;;
-        "help") show_help ;;
+        "exit")
+            exit 0
+            ;;
+        "history")
+            show_history
+            ;;
+        "env")
+            show_environment_variables
+            ;;
+        "help")
+            show_help
+            ;;
         *)
             if [[ "$command" == *" && "* ]]; then
                 handle_chaining "$command"
@@ -47,19 +42,15 @@ execute_command() {
                 change_directory "$command"
             elif [[ "$command" == open* ]]; then
                 open_website "$command"
-            elif [[ "$command" == nice* ]]; then
-                set_process_priority "$command"
-            elif [[ "$command" == "ls "* ]]; then
-                custom_ls "$command"
-            elif [[ "$command" == stat* ]]; then
-                file_metadata "$command"
-            elif [[ "$command" == listusers ]]; then
-                list_users
-            elif [[ "$command" == adduser* ]]; then
-                add_user "$command"
             else
-                echo -e "${RED}Unknown command: '$command'${NC}"
-                suggest_command "$command"
+                # Check if command matches an alias
+                for alias in "${!aliases[@]}"; do
+                    if [[ "$command" == "$alias"* ]]; then
+                        command="${aliases[$alias]}"
+                    fi
+                done
+                # Execute non-builtin command
+                eval "$command"
             fi
             ;;
     esac
@@ -67,7 +58,7 @@ execute_command() {
 
 # Show command history
 show_history() {
-    echo -e "${YELLOW}Command History:${NC}"
+    echo "Command History:"
     for i in "${!command_history[@]}"; do
         echo "$((i + 1)): ${command_history[i]}"
     done
@@ -75,94 +66,109 @@ show_history() {
 
 # Show environment variables
 show_environment_variables() {
-    echo -e "${YELLOW}Environment Variables:${NC}"
+    echo "Environment Variables:"
     printenv
 }
 
-# Function for chaining commands with &&
-handle_chaining() { ... }  # (kept same)
+# Handle command chaining with &&
+handle_chaining() {
+    IFS="&&" read -ra commands <<< "$1"
+    for cmd in "${commands[@]}"; do
+        cmd=$(echo "$cmd" | xargs)  # Trim whitespace
+        eval "$cmd" || break  # Stop if a command fails
+    done
+}
 
-# Function for piping commands with |
-handle_piping() { ... }  # (kept same)
+# Handle piping commands
+handle_piping() {
+    local commands=("${@//|/ }")
+    eval "$1"
+}
 
-# Function for redirection > and >>
-handle_redirection() { ... }  # (kept same)
+# Handle redirection (> and >>)
+handle_redirection() {
+    local output_file
+    if [[ "$1" == *">>"* ]]; then
+        command="${1%>>*}"
+        output_file="${1#*>>}"
+        command=$(echo "$command" | xargs)
+        output_file=$(echo "$output_file" | xargs)
+        eval "$command" >> "$output_file"
+    else
+        command="${1%>*}"
+        output_file="${1#*>}"
+        command=$(echo "$command" | xargs)
+        output_file=$(echo "$output_file" | xargs)
+        eval "$command" > "$output_file"
+    fi
+}
 
-# Function for running command in background
-run_in_background() { ... }  # (kept same)
+# Run command in background
+run_in_background() {
+    eval "$1" &
+}
 
 # Set environment variable
-set_environment_variable() { ... }  # (kept same)
+set_environment_variable() {
+    local args=($@)
+    if [[ ${#args[@]} -eq 3 ]]; then
+        export "${args[1]}"="${args[2]}"
+        echo "Environment variable ${args[1]} set to ${args[2]}"
+    elif [[ ${#args[@]} -eq 2 ]]; then
+        echo "${args[1]}=${!args[1]}"
+    else
+        echo "Usage: set VAR VALUE or set VAR"
+    fi
+}
 
-# Set alias and display with color
-set_alias() { ... }  # (kept same)
+# Set alias
+set_alias() {
+    local args=($@)
+    if [[ ${#args[@]} -gt 2 ]]; then
+        local alias_name="${args[1]}"
+        local alias_command="${args[@]:2}"
+        aliases[$alias_name]="$alias_command"
+        echo "Alias set: $alias_name = $alias_command"
+    elif [[ ${#args[@]} -eq 2 && "${args[1]}" == "-l" ]]; then
+        echo "Aliases:"
+        for alias in "${!aliases[@]}"; do
+            echo "$alias = ${aliases[$alias]}"
+        done
+    else
+        echo "Usage: alias name command or alias -l"
+    fi
+}
 
 # Remove alias
-remove_alias() { ... }  # (kept same)
+remove_alias() {
+    local alias_name="${1#unalias }"
+    if [[ -n "${aliases[$alias_name]}" ]]; then
+        unset aliases[$alias_name]
+        echo "Alias '$alias_name' removed"
+    else
+        echo "No such alias: $alias_name"
+    fi
+}
 
 # Change directory
-change_directory() { ... }  # (kept same)
-
-# Open website
-open_website() { ... }  # (kept same)
-
-# Set process priority using nice/renice
-set_process_priority() {
-    local cmd="${1#nice }"
-    if [[ -n "$cmd" ]]; then
-        eval "nice $cmd"
+change_directory() {
+    local dir="${1#cd }"
+    if cd "$dir" 2>/dev/null; then
+        :
     else
-        echo -e "${YELLOW}Usage: nice command or renice <priority> <pid>${NC}"
+        echo "Directory not found: $dir"
     fi
 }
 
-# List files with custom formatting for ls
-custom_ls() {
-    ls --color=auto "$@"
+# Open a website
+open_website() {
+    local url="${1#open }"
+    xdg-open "$url" &>/dev/null || echo "Error opening URL"
 }
 
-# Show file metadata
-file_metadata() {
-    local file="${1#stat }"
-    if [[ -f "$file" || -d "$file" ]]; then
-        stat "$file"
-    else
-        echo -e "${RED}File not found: $file${NC}"
-    fi
-}
-
-# List users (limited to /etc/passwd file users)
-list_users() {
-    echo -e "${YELLOW}System Users:${NC}"
-    cut -d: -f1 /etc/passwd
-}
-
-# Add a new user (requires sudo)
-add_user() {
-    local username="${1#adduser }"
-    if [[ -n "$username" ]]; then
-        sudo adduser "$username"
-    else
-        echo -e "${YELLOW}Usage: adduser <username>${NC}"
-    fi
-}
-
-# Error handling with command suggestions
-suggest_command() {
-    local unknown_cmd="$1"
-    echo -e "${YELLOW}Did you mean:${NC}"
-    if [[ "$unknown_cmd" == "hst"* ]]; then
-        echo "  history"
-    elif [[ "$unknown_cmd" == "evn"* ]]; then
-        echo "  env"
-    elif [[ "$unknown_cmd" == "alais"* ]]; then
-        echo "  alias"
-    fi
-}
-
-# Show help with color
+# Show help
 show_help() {
-    echo -e "${GREEN}Available Commands:${NC}"
+    echo "Available Commands:"
     echo "  history                  - Show command history"
     echo "  env                      - Show environment variables"
     echo "  set VAR VALUE            - Set environment variable"
@@ -171,21 +177,12 @@ show_help() {
     echo "  unalias name             - Remove an alias"
     echo "  cd <directory>           - Change directory"
     echo "  open <URL>               - Open a website"
-    echo "  nice command             - Run command with set priority"
-    echo "  ls [options]             - List files with options"
-    echo "  stat <file>              - Show file metadata"
-    echo "  listusers                - List system users"
-    echo "  adduser <username>       - Add a new user"
     echo "  help                     - Show this help message"
     echo "  exit                     - Exit the shell"
 }
-
-# Load .myshellrc file if available
-load_rc_file
 
 # Main loop
 while true; do
     read -p "myshell> " command
     execute_command "$command"
 done
-
