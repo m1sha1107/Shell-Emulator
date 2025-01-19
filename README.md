@@ -98,14 +98,6 @@ To remove an alias:
 $ unalias ll
 ```
 
-## Contributing
-
-Contributions are welcome! Please feel free to fork the repository and submit pull requests. For bug reports or feature requests, open an issue.
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 ## Acknowledgments
 
 - This project was created as part of an Operating Systems course.
